@@ -351,9 +351,9 @@ func TestRename(t *testing.T) {
 	m.SetHeader("From", "from@example.com")
 	m.SetHeader("To", "to@example.com")
 	m.SetBody("text/plain", "Test")
-	name, copy := mockCopyFile("/tmp/test.pdf")
+	name, copyFile := mockCopyFile("/tmp/test.pdf")
 	rename := Rename("another.pdf")
-	m.Attach(name, copy, rename)
+	m.Attach(name, copyFile, rename)
 
 	want := &message{
 		from: "from@example.com",
