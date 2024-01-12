@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"path/filepath"
@@ -80,7 +81,9 @@ type messageWriter struct {
 func (w *messageWriter) openMultipart(mimeType, boundary string) {
 	mw := multipart.NewWriter(w)
 	if boundary != "" {
-		mw.SetBoundary(boundary)
+		if err := mw.SetBoundary(boundary); err != nil {
+			slog.Error("unable to set boundary in openMultipart", "error", err.Error())
+		}
 	}
 	contentType := "multipart/" + mimeType + ";\r\n boundary=" + mw.Boundary()
 	w.writers[w.depth] = mw
@@ -102,7 +105,9 @@ func (w *messageWriter) createPart(h map[string][]string) {
 
 func (w *messageWriter) closeMultipart() {
 	if w.depth > 0 {
-		w.writers[w.depth-1].Close()
+		if err := w.writers[w.depth-1].Close(); err != nil {
+			slog.Error("unable to close writers in closeMultipart", "error", err.Error())
+		}
 		w.depth--
 	}
 }
@@ -270,13 +275,17 @@ func (w *messageWriter) writeBody(f func(io.Writer) error, enc Encoding) {
 	case Base64:
 		wc := base64.NewEncoder(base64.StdEncoding, newBase64LineWriter(subWriter))
 		w.err = f(wc)
-		wc.Close()
+		if err := wc.Close(); err != nil {
+			slog.Error("unable to close writer for base64 write body", "error", err.Error())
+		}
 	case Unencoded:
 		w.err = f(subWriter)
 	default:
 		wc := newQPWriter(subWriter)
 		w.err = f(wc)
-		wc.Close()
+		if err := wc.Close(); err != nil {
+			slog.Error("unable to close newQPWriter", "error", err.Error())
+		}
 	}
 }
 
@@ -297,14 +306,21 @@ func newBase64LineWriter(w io.Writer) *base64LineWriter {
 func (w *base64LineWriter) Write(p []byte) (int, error) {
 	n := 0
 	for len(p)+w.lineLen > maxLineLen {
-		w.w.Write(p[:maxLineLen-w.lineLen])
-		w.w.Write([]byte("\r\n"))
+		if _, err := w.w.Write(p[:maxLineLen-w.lineLen]); err != nil {
+			slog.Error("unable to write line", "error", err.Error())
+		}
+
+		if _, err := w.w.Write([]byte("\r\n")); err != nil {
+			slog.Error("unable to write newline characters", "error", err.Error())
+		}
 		p = p[maxLineLen-w.lineLen:]
 		n += maxLineLen - w.lineLen
 		w.lineLen = 0
 	}
 
-	w.w.Write(p)
+	if _, err := w.w.Write(p); err != nil {
+		slog.Error("unable to write final line", "error", err.Error())
+	}
 	w.lineLen += len(p)
 
 	return n + len(p), nil

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/smtp"
 	"strings"
@@ -94,7 +95,9 @@ func (d *Dialer) Dial() (SendCloser, error) {
 	}
 
 	if d.Timeout > 0 {
-		conn.SetDeadline(time.Now().Add(d.Timeout))
+		if tErr := conn.SetDeadline(time.Now().Add(d.Timeout)); tErr != nil {
+			slog.Error("unable to set connection deadline", "error", tErr.Error())
+		}
 	}
 
 	if d.LocalName != "" {
@@ -113,7 +116,9 @@ func (d *Dialer) Dial() (SendCloser, error) {
 
 		if ok {
 			if err := c.StartTLS(d.tlsConfig()); err != nil {
-				c.Close()
+				if cErr := c.Close(); cErr != nil {
+					slog.Error("unable to close smtpClient after attempting to startTLS", "error", cErr.Error())
+				}
 				return nil, err
 			}
 		}
@@ -138,7 +143,9 @@ func (d *Dialer) Dial() (SendCloser, error) {
 
 	if d.Auth != nil {
 		if err = c.Auth(d.Auth); err != nil {
-			c.Close()
+			if cErr := c.Close(); cErr != nil {
+				slog.Error("unable to close smtpClient after attempting to set Auth", "error", cErr.Error())
+			}
 			return nil, err
 		}
 	}
@@ -205,7 +212,12 @@ func (d *Dialer) DialAndSend(m ...*Message) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+
+	defer func() {
+		if sErr := s.Close(); sErr != nil {
+			slog.Error("unable to close sendCloser after attempting to Close", "error", sErr.Error())
+		}
+	}()
 
 	return Send(s, m...)
 }
@@ -230,7 +242,9 @@ func (c *smtpSender) retryError(err error) bool {
 
 func (c *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
 	if c.d.Timeout > 0 {
-		c.conn.SetDeadline(time.Now().Add(c.d.Timeout))
+		if err := c.conn.SetDeadline(time.Now().Add(c.d.Timeout)); err != nil {
+			slog.Error("unable to set context deadline in send", "error", err.Error())
+		}
 	}
 
 	if err := c.Mail(from); err != nil {
@@ -260,7 +274,9 @@ func (c *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
 	}
 
 	if _, err = msg.WriteTo(w); err != nil {
-		w.Close()
+		if wErr := w.Close(); wErr != nil {
+			slog.Error("unable to close writeCloser after attempting to write message", "error", wErr.Error())
+		}
 		return err
 	}
 
